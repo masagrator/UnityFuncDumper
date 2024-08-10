@@ -14,16 +14,6 @@
 DmntCheatProcessMetadata cheatMetadata = {0};
 u64 mappings_count = 0;
 MemoryInfo* memoryInfoBuffers = 0;
-struct ue4Results {
-	const char* iterator;
-	bool isFloat = false;
-	int default_value_int;
-	float default_value_float;
-	uint32_t offset;
-	uint32_t add;
-};
-
-std::vector<ue4Results> ue4_vector;
 
 bool isServiceRunning(const char *serviceName) {	
 	Handle handle;	
