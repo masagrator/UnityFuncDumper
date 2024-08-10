@@ -89,6 +89,143 @@ char* findStringInBuffer(char* buffer_c, size_t buffer_size, const char* descrip
 std::vector<std::string> UnityNames;
 std::vector<uint32_t> UnityOffsets;
 
+void searchFunctionsUnity2() {
+	size_t i = 0;
+	const char first_entry[] = "UnityEngineInternal.GIDebugVisualisation::ResetRuntimeInputTextures";
+	const char second_entry[] = "UnityEngineInternal.GIDebugVisualisation::PlayCycleMode";
+	const char* first_result = 0;
+	const char* second_result = 0;
+	printf("Base address: 0x%lx\n", cheatMetadata.main_nso_extents.base);
+	printf("Mapping %ld / %ld\r", i+1, mappings_count);	
+	consoleUpdate(NULL);
+	while (i < mappings_count) {
+		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
+			printf("Mapping %ld / %ld\r", i+1, mappings_count);
+			consoleUpdate(NULL);
+			if (memoryInfoBuffers[i].size > 200'000'000) {
+				i++;
+				continue;
+			}
+			char* buffer_c = new char[memoryInfoBuffers[i].size];
+			dmntchtReadCheatProcessMemory(memoryInfoBuffers[i].addr, (void*)buffer_c, memoryInfoBuffers[i].size);
+			char* result = 0;
+			result = findStringInBuffer(buffer_c, memoryInfoBuffers[i].size, first_entry);
+			if (result) {
+				first_result = (char*)(memoryInfoBuffers[i].addr + (result - buffer_c));
+				printf("Found 1. reference string at address 0x%lx\n", (uint64_t)first_result);
+				consoleUpdate(NULL);
+				result = findStringInBuffer(buffer_c, memoryInfoBuffers[i].size, second_entry);
+				if (result) {
+					second_result = (char*)(memoryInfoBuffers[i].addr + (result - buffer_c));
+					printf("Found 2. reference string at address 0x%lx\n", (uint64_t)second_result);
+					consoleUpdate(NULL);
+					delete[] buffer_c;
+					break;
+				}
+			}
+			delete[] buffer_c;
+		}
+		i++;
+	}
+	if (!first_result || !second_result) {
+		printf("Reference strings were not found! Aborting...\n");
+		consoleUpdate(NULL);
+		return;
+	}
+	printf("Mapping %ld / %ld\r", i+1, mappings_count);
+	consoleUpdate(NULL);
+	while (i < mappings_count) {
+		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
+			printf("Mapping %ld / %ld\r", i+1, mappings_count);
+			consoleUpdate(NULL);
+			if (memoryInfoBuffers[i].size > 200'000'000) {
+				i++;
+				continue;
+			}
+			int32_t* buffer = new int32_t[memoryInfoBuffers[i].size / sizeof(int32_t)];
+			printf("Buffer: 0x%lx, size: 0x%lx\n", (uint64_t)buffer, memoryInfoBuffers[i].size);
+			consoleUpdate(NULL);
+			dmntchtReadCheatProcessMemory(memoryInfoBuffers[i].addr, (void*)buffer, memoryInfoBuffers[i].size);
+			int32_t* result = 0;
+			for (size_t x = 0; x+1 < memoryInfoBuffers[i].size / sizeof(uint32_t); x++) {
+				int32_t diff1 = (int64_t)first_result - (memoryInfoBuffers[i].addr + (x * sizeof(uint32_t)));
+				int32_t diff2 = (int64_t)second_result - (memoryInfoBuffers[i].addr + (x * sizeof(uint32_t)));
+				if (buffer[x] == diff1 && buffer[x+1] == diff2) {
+					result = &buffer[x];
+					break;
+				}
+			}
+			if (!result) {
+				delete[] buffer;
+				i++;
+				continue;
+			}
+			printf("Found string array at buffer address: 0x%lx\n", (uint64_t)result);
+			consoleUpdate(NULL);
+			size_t x = 0;
+			while(true) {
+				int32_t offset = result[x];
+				char* address = (char*)((uint64_t)result + offset);
+				if (((uint64_t)address > (uint64_t)buffer + memoryInfoBuffers[i].size) || ((uint64_t)address < (uint64_t)buffer)) {
+					break;
+				}
+				if (!strncmp(address, "Unity", 5)) {
+					std::string name = address;
+					UnityNames.push_back(name);
+					x++;
+					printf("#%ld: %s\n", x, name.c_str());
+					consoleUpdate(NULL);
+				}
+				else break;
+			}
+			delete[] buffer;
+			break;
+		}
+		i++;
+	}
+	printf("Mapping %ld / %ld\r", i+1, mappings_count);
+	consoleUpdate(NULL);
+	MemoryInfo main = {0};
+	dmntchtQueryCheatProcessMemory(&main, cheatMetadata.main_nso_extents.base);
+	while (i < mappings_count) {
+		if ((memoryInfoBuffers[i].perm & Perm_Rw) == Perm_Rw && (memoryInfoBuffers[i].type == MemType_CodeMutable || memoryInfoBuffers[i].type == MemType_CodeWritable)) {
+			printf("Mapping %ld / %ld\r", i+1, mappings_count);
+			consoleUpdate(NULL);
+			if (memoryInfoBuffers[i].size > 200'000'000) {
+				i++;
+				continue;
+			}
+			uint64_t* buffer = new uint64_t[memoryInfoBuffers[i].size / sizeof(uint64_t)];
+			dmntchtReadCheatProcessMemory(memoryInfoBuffers[i].addr, (void*)buffer, memoryInfoBuffers[i].size);
+			uint16_t count = 0;
+			size_t start_index = 0;
+			for (size_t x = 0; x < (memoryInfoBuffers[i].size / sizeof(uint64_t)); x++) {
+				if (buffer[x] == 0 || (buffer[x] < main.addr) || (buffer[x] > (main.addr + main.size))) {
+					if (count == UnityNames.size()) {
+						start_index = x - count;
+						break;
+					}
+					count = 0;
+					continue;
+				}
+				count++;
+			}
+			if (count != UnityNames.size()) {
+				delete[] buffer;
+				i++;
+				continue;
+			}
+			for (size_t x = 0; x < count; x++) {
+				UnityOffsets.push_back(buffer[start_index + x] - cheatMetadata.main_nso_extents.base);
+			}
+			delete[] buffer;
+			return;
+		}
+		i++;
+	}
+	return;
+}
+
 void searchFunctionsUnity() {
 	size_t i = 0;
 	const char first_entry[] = "UnityEngineInternal.GIDebugVisualisation::ResetRuntimeInputTextures";
@@ -154,10 +291,10 @@ void searchFunctionsUnity() {
 		}
 		i++;
 	}
-	if (!found_string) {
-		printf("Didn't found array string.\n");
+	if (!array_start) {
+		printf("Didn't found array string. Initiating second method...\n");
 		consoleUpdate(NULL);
-		return;
+		return searchFunctionsUnity2();
 	}
 	i = 0;
 	while(true) {
@@ -191,13 +328,14 @@ void searchFunctionsUnity() {
 		}
 		UnityOffsets.push_back(function_address - cheatMetadata.main_nso_extents.base);
 	}
-	if (UnityNames.size() != UnityOffsets.size()) {
-		printf("Count of names doesn't match count of offsets. Get ready for segfault :)\n");
-	}
 	return;
 }
 
 void dumpAsLog() {
+	if (UnityNames.size() != UnityOffsets.size()) {
+		printf("Cannot produce log, Names and Offsets count doesn't match.\n");
+		return;
+	}
 	uint64_t BID = 0;
 	memcpy(&BID, &(cheatMetadata.main_nso_build_id), 8);
 	char path[128] = "";
