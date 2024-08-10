@@ -1,4 +1,4 @@
-# UE4cfgdumper
-Tool that finds automatically RAM offsets for graphics settings in Unreal Engine 4 games
+# UnityFuncDumper
+Tool that finds automatically RAM offsets for proper Unity functions instead of helpers.
 
-Run any game, wait for it to show main menu, then run this app. 
+Run any game, wait for it to show main menu, then run this app.
