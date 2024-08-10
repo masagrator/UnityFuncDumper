@@ -87,7 +87,6 @@ char* findStringInBuffer(char* buffer_c, size_t buffer_size, const char* descrip
 }
 
 std::vector<std::string> UnityNames;
-std::vector<std::string> UnityFullNames;
 std::vector<uint32_t> UnityOffsets;
 
 void searchFunctionsUnity() {
