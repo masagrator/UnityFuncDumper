@@ -42,9 +42,9 @@ APP_VERSION :=  1.0.1
 APP_AUTHOR	:=  MasaGratoR
 TARGET		:=	$(APP_TITLE)
 BUILD		:=	build
-SOURCES		:=	source
+SOURCES		:=	source libs/armadillo/source
 DATA		:=	data
-INCLUDES	:=	include
+INCLUDES	:=	include libs/armadillo/source
 #ROMFS	:=	romfs
 
 #---------------------------------------------------------------------------------
