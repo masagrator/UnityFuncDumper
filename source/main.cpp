@@ -343,7 +343,7 @@ void dumpAsLog() {
 	snprintf(path, sizeof(path), "sdmc:/switch/UnityFuncDumper/%016lX/%016lX.log", cheatMetadata.title_id, __builtin_bswap64(BID));	
 	FILE* text_file = fopen(path, "w");
 	if (!text_file) {
-		printf("Couldn't create log file!");
+		printf("Couldn't create log file!\n");
 		return;
 	}
 	fwrite(unity_sdk.c_str(), unity_sdk.size(), 1, text_file);
@@ -505,7 +505,7 @@ int main(int argc, char* argv[])
 			}
 		}
 		
-		dumpPointers(UnityNames, UnityOffsets, cheatMetadata);
+		dumpPointers(UnityNames, UnityOffsets, cheatMetadata, unity_sdk);
 		dmntchtExit();
 		printf("Press + to exit.");
 		while (appletMainLoop()) {   
