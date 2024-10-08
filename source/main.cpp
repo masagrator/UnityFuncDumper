@@ -1,15 +1,11 @@
 // Include the most common headers from the C standard library
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <algorithm>
-#include <vector>
 
 // Include the main libnx system header, for Switch development
 #include <switch.h>
-#include "dmntcht.h"
-#include <string>
 #include <sys/stat.h>
+#include "asmInterpreter.hpp"
 
 DmntCheatProcessMetadata cheatMetadata = {0};
 u64 mappings_count = 0;
@@ -219,6 +215,7 @@ void searchFunctionsUnity2() {
 				UnityOffsets.push_back(buffer[start_index + x] - cheatMetadata.main_nso_extents.base);
 			}
 			delete[] buffer;
+			printf("Found %ld Unity functions.\n", UnityNames.size());
 			return;
 		}
 		i++;
@@ -331,6 +328,8 @@ void searchFunctionsUnity() {
 	return;
 }
 
+char path[128] = "";
+
 void dumpAsLog() {
 	if (UnityNames.size() != UnityOffsets.size()) {
 		printf("Cannot produce log, Names and Offsets count doesn't match.\n");
@@ -338,14 +337,13 @@ void dumpAsLog() {
 	}
 	uint64_t BID = 0;
 	memcpy(&BID, &(cheatMetadata.main_nso_build_id), 8);
-	char path[128] = "";
 	mkdir("sdmc:/switch/UnityFuncDumper/", 777);
 	snprintf(path, sizeof(path), "sdmc:/switch/UnityFuncDumper/%016lX/", cheatMetadata.title_id);
 	mkdir(path, 777);
 	snprintf(path, sizeof(path), "sdmc:/switch/UnityFuncDumper/%016lX/%016lX.log", cheatMetadata.title_id, __builtin_bswap64(BID));	
 	FILE* text_file = fopen(path, "w");
 	if (!text_file) {
-		printf("Couldn't create log file!");
+		printf("Couldn't create log file!\n");
 		return;
 	}
 	fwrite(unity_sdk.c_str(), unity_sdk.size(), 1, text_file);
@@ -440,8 +438,25 @@ int main(int argc, char* argv[])
 		//Test run
 
 		if (checkIfUnity()) {
-			printf("\n----------\nPress A to Start\n\n");
+
+			uint64_t BID = 0;
+			memcpy(&BID, &(cheatMetadata.main_nso_build_id), 8);
+			mkdir("sdmc:/switch/UnityFuncDumper/", 777);
+			snprintf(path, sizeof(path), "sdmc:/switch/UnityFuncDumper/%016lX/", cheatMetadata.title_id);
+			mkdir(path, 777);
+			snprintf(path, sizeof(path), "sdmc:/switch/UnityFuncDumper/%016lX/%016lX.log", cheatMetadata.title_id, __builtin_bswap64(BID));	
+			bool file_exists = false;
+			FILE* text_file = fopen(path, "r");
+			if (text_file) {
+				file_exists = true;
+				fclose(text_file);
+			}
+			if (file_exists) {
+				printf("\nFunctions offsets were already dumped.\nPress A to overwrite them.\nPress X to dump data.\n\n");
+			}
+			else printf("\n----------\nPress A to Start\n\n");
 			consoleUpdate(NULL);
+			bool overwrite = true;
 			while (appletMainLoop()) {   
 				padUpdate(&pad);
 
@@ -449,20 +464,48 @@ int main(int argc, char* argv[])
 
 				if (kDown & HidNpadButton_A)
 					break;
+
+				if (file_exists && (kDown & HidNpadButton_X)) {
+					printf("Restoring offsets to program...\n");
+					consoleUpdate(NULL);
+					text_file = fopen(path, "r");
+					if (!text_file) {
+						printf("It didn't open?!\n");
+						consoleUpdate(NULL);
+					}
+					else {
+						char line[256] = "";
+						while (fgets(line, sizeof(line), text_file)) {
+							if (strncmp("Unity", line, 5))
+								continue;
+							char* ptr = strchr(line, ' ');
+							char temp[256] = "";
+							memcpy(temp, line, ptr-(line+1));
+							UnityOffsets.push_back(std::stoi(ptr, nullptr, 16));
+							UnityNames.push_back(temp);
+						}
+						fclose(text_file);
+					}
+					overwrite = false;
+					break;
+				}
 				
 			}
-			printf("Searching RAM...\n\n");
-			consoleUpdate(NULL);
-			appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-			searchFunctionsUnity();
-			printf(CONSOLE_BLUE "\n---------------------------------------------\n\n" CONSOLE_RESET);
-			printf(CONSOLE_WHITE "Search is finished!\n");
-			consoleUpdate(NULL);
-			dumpAsLog();
-			appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+			if (overwrite) {
+				printf("Searching RAM...\n\n");
+				consoleUpdate(NULL);
+				appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+				searchFunctionsUnity();
+				printf(CONSOLE_BLUE "\n---------------------------------------------\n\n" CONSOLE_RESET);
+				printf(CONSOLE_WHITE "Search is finished!\n");
+				consoleUpdate(NULL);
+				dumpAsLog();
+				appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+				delete[] memoryInfoBuffers;
+			}
 		}
 		
-		delete[] memoryInfoBuffers;
+		dumpPointers(UnityNames, UnityOffsets, cheatMetadata, unity_sdk);
 		dmntchtExit();
 		printf("Press + to exit.");
 		while (appletMainLoop()) {   
