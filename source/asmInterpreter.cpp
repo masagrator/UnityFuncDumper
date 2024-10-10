@@ -310,9 +310,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					machineState.X[insn -> operands[0].op_reg.rn] = Xa;
 					break;
 				}
-				case AD_INSTR_STP: {
-					break;
-				}
+				case AD_INSTR_STP:
+				case AD_INSTR_STUR:
 				case AD_INSTR_STR: {
 					break;
 				}

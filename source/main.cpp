@@ -57,7 +57,10 @@ size_t checkAvailableHeap() {
 bool checkIfUnity() {
 	size_t i = 0;
 	while (i < mappings_count) {
-		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && memoryInfoBuffers[i].type == MemType_CodeStatic) {
+		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].perm & Perm_Rx) != Perm_Rx && memoryInfoBuffers[i].type == MemType_CodeStatic) {
+			if (memoryInfoBuffers[i].size > 200'000'000) {
+				continue;
+			}
 			char test_4[] = "SDK MW+UnityTechnologies+Unity";
 			char* buffer_c = new char[memoryInfoBuffers[i].size];
 			dmntchtReadCheatProcessMemory(memoryInfoBuffers[i].addr, (void*)buffer_c, memoryInfoBuffers[i].size);
@@ -95,7 +98,7 @@ void searchFunctionsUnity2() {
 	printf("Mapping %ld / %ld\r", i+1, mappings_count);	
 	consoleUpdate(NULL);
 	while (i < mappings_count) {
-		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
+		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].perm & Perm_Rx) != Perm_Rx && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
 			printf("Mapping %ld / %ld\r", i+1, mappings_count);
 			consoleUpdate(NULL);
 			if (memoryInfoBuffers[i].size > 200'000'000) {
@@ -131,7 +134,7 @@ void searchFunctionsUnity2() {
 	printf("Mapping %ld / %ld\r", i+1, mappings_count);
 	consoleUpdate(NULL);
 	while (i < mappings_count) {
-		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
+		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].perm & Perm_Rx) != Perm_Rx && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
 			printf("Mapping %ld / %ld\r", i+1, mappings_count);
 			consoleUpdate(NULL);
 			if (memoryInfoBuffers[i].size > 200'000'000) {
@@ -231,7 +234,7 @@ void searchFunctionsUnity() {
 	consoleUpdate(NULL);
 	char* found_string = 0;
 	while (i < mappings_count) {
-		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
+		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].perm & Perm_Rx) != Perm_Rx && (memoryInfoBuffers[i].type == MemType_CodeStatic || memoryInfoBuffers[i].type == MemType_CodeReadOnly)) {
 			printf("Mapping %ld / %ld\r", i+1, mappings_count);
 			consoleUpdate(NULL);
 			if (memoryInfoBuffers[i].size > 200'000'000) {
@@ -413,6 +416,7 @@ int main(int argc, char* argv[])
 		pmdmntExit();
 		size_t availableHeap = checkAvailableHeap();
 		printf("Available Heap: %ld MB\n", (availableHeap / (1024 * 1024)));
+		consoleUpdate(NULL);
 		dmntchtInitialize();
 		bool hasCheatProcess = false;
 		dmntchtHasCheatProcess(&hasCheatProcess);
@@ -452,9 +456,9 @@ int main(int argc, char* argv[])
 				fclose(text_file);
 			}
 			if (file_exists) {
-				printf("\nFunctions offsets were already dumped.\nPress A to overwrite them.\nPress X to dump data.\n\n");
+				printf("\nFunctions offsets were already dumped.\nPress A to overwrite them.\nPress X to dump data.\nPress + to Exit\n\n");
 			}
-			else printf("\n----------\nPress A to Start\n\n");
+			else printf("\n----------\nPress A to Start\nPress + to Exit\n\n");
 			consoleUpdate(NULL);
 			bool overwrite = true;
 			while (appletMainLoop()) {   
@@ -464,6 +468,12 @@ int main(int argc, char* argv[])
 
 				if (kDown & HidNpadButton_A)
 					break;
+
+				if (kDown & HidNpadButton_Plus) {
+					dmntchtExit();
+					consoleExit(NULL);
+					return 0;
+				}
 
 				if (file_exists && (kDown & HidNpadButton_X)) {
 					printf("Restoring offsets to program...\n");
