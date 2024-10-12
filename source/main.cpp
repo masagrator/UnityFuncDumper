@@ -513,9 +513,8 @@ int main(int argc, char* argv[])
 				appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
 				delete[] memoryInfoBuffers;
 			}
+			dumpPointers(UnityNames, UnityOffsets, cheatMetadata, unity_sdk);
 		}
-		
-		dumpPointers(UnityNames, UnityOffsets, cheatMetadata, unity_sdk);
 		dmntchtExit();
 		printf("Press + to exit.");
 		while (appletMainLoop()) {   
