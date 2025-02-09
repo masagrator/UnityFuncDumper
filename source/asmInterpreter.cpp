@@ -376,7 +376,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 		fwrite("{", 1, 1, text_file);
 		fwrite(unity_sdk.c_str(), unity_sdk.size(), 1, text_file);
 		fwrite("}", 1, 1, text_file);
-		fwrite("\n\n", 1, 1, text_file);	
+		fwrite("\n\n", 2, 1, text_file);	
 		for (size_t i = 0; i < result.size(); i++) {
 			if (result[i].data -> get) {
 				fwrite("{", 1, 1, text_file);
