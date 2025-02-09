@@ -56,7 +56,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 			if (insn) {
 				ArmadilloDone(&insn);
 			}
-			int rc = ArmadilloDisassemble(instruction, start_address, &insn);
+			int rc = ArmadilloDisassemble(instruction, start_address - cheatMetadata.main_nso_extents.base, &insn);
 			if (rc) {
 				printf("Disassembler error! 0x%x/%d\n", rc, rc);
 				ArmadilloDone(&insn);
@@ -376,13 +376,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 		fwrite("{", 1, 1, text_file);
 		fwrite(unity_sdk.c_str(), unity_sdk.size(), 1, text_file);
 		fwrite("}", 1, 1, text_file);
-		fwrite("\n", 1, 1, text_file);
-		char address_temp[17] = "";
-		snprintf(address_temp, sizeof(address_temp), "0x%lx", cheatMetadata.main_nso_extents.base);
-		fwrite("{MAIN: ", 7, 1, text_file);
-		fwrite(address_temp, strlen(address_temp), 1, text_file);
-		fwrite("}", 1, 1, text_file);
-		fwrite("\n\n", 2, 1, text_file);		
+		fwrite("\n\n", 1, 1, text_file);	
 		for (size_t i = 0; i < result.size(); i++) {
 			if (result[i].data -> get) {
 				fwrite("{", 1, 1, text_file);
