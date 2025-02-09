@@ -34,9 +34,11 @@ struct pointerDump {
 
 void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<uint32_t> UnityOffsets, const DmntCheatProcessMetadata cheatMetadata, std::string unity_sdk) {
 	ad_insn *insn = NULL;
+	ad_insn *insn2 = NULL;
 	MachineState machineState = {0};
 	std::vector<pointerDump> result;
 	std::vector<std::string> forPass;
+	std::vector<std::string> toOutput;
 	for (size_t i = 0; i < unityDataStruct.size(); i++) {
 		forPass.clear();
 		auto itr = std::find(UnityNames.begin(), UnityNames.end(), unityDataStruct[i].search_name);
@@ -56,14 +58,17 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 			if (insn) {
 				ArmadilloDone(&insn);
 			}
-			int rc = ArmadilloDisassemble(instruction, start_address - cheatMetadata.main_nso_extents.base, &insn);
+			int rc = ArmadilloDisassemble(instruction, start_address, &insn);
 			if (rc) {
 				printf("Disassembler error! 0x%x/%d\n", rc, rc);
 				ArmadilloDone(&insn);
 				return;
 			}
 			else {
+				ArmadilloDisassemble(instruction, start_address - cheatMetadata.main_nso_extents.base, &insn2);
 				forPass.push_back(insn -> decoded);
+				toOutput.push_back(insn2 -> decoded);
+				ArmadilloDone(&insn2);
 			}
 			uint8_t readSize = 0;
 			switch(insn -> instr_id) {
@@ -356,9 +361,9 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 		if (insn)
 			ArmadilloDone(&insn);
 		std::string toReturn = "";
-		for (size_t x = 0; x < forPass.size(); x++) {
-			toReturn += forPass[x];
-			if (x+1 < forPass.size()) toReturn += "\n";
+		for (size_t x = 0; x < toOutput.size(); x++) {
+			toReturn += toOutput[x];
+			if (x+1 < toOutput.size()) toReturn += "\n";
 		}
 		result.push_back({&unityDataStruct[i], toReturn, smallToPrint});
 		consoleUpdate(NULL);
@@ -397,4 +402,5 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 	}
 	result.clear();
 	forPass.clear();
+	toOutput.clear();
 }
