@@ -37,10 +37,9 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 	ad_insn *insn2 = NULL;
 	MachineState machineState = {0};
 	std::vector<pointerDump> result;
-	std::vector<std::string> forPass;
 	std::vector<std::string> toOutput;
 	for (size_t i = 0; i < unityDataStruct.size(); i++) {
-		forPass.clear();
+		toOutput.clear();
 		auto itr = std::find(UnityNames.begin(), UnityNames.end(), unityDataStruct[i].search_name);
 		if (itr == UnityNames.end()) {
 			printf("%s was not found!\n", unityDataStruct[i].search_name);
@@ -66,7 +65,6 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 			}
 			else {
 				ArmadilloDisassemble(instruction, start_address - cheatMetadata.main_nso_extents.base, &insn2);
-				forPass.push_back(insn -> decoded);
 				toOutput.push_back(insn2 -> decoded);
 				ArmadilloDone(&insn2);
 			}
@@ -401,6 +399,5 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 		printf("\n");
 	}
 	result.clear();
-	forPass.clear();
 	toOutput.clear();
 }
