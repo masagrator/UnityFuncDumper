@@ -50,6 +50,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 		uint64_t start_address = cheatMetadata.main_nso_extents.base + UnityOffsets[index];
 		uint32_t instruction = 0;
 		std::vector<uint64_t> returns;
+		bool error = false;
 		while(true) {
 			dmntchtReadCheatProcessMemory(start_address, (void*)&instruction, sizeof(uint32_t));
 			if (returns.size() == 0 && instruction == 0xD65F03C0)
@@ -79,7 +80,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					}
 					else {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;						
+						error = true;
 					}
 					break;
 				}
@@ -94,7 +95,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 				case AD_INSTR_BL: {
 					if (insn -> num_operands != 1) {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;									
+						error = true;
+						break;
 					}
 					returns.push_back(start_address);
 					start_address = insn -> operands[0].op_imm.bits - 4;
@@ -120,7 +122,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						if (insn -> operands[0].op_reg.fp) {
 							if ((insn -> operands[3].type != AD_OP_IMM) || (insn -> operands[3].op_imm.bits < 0)) {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
 								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.S[insn -> operands[0].op_reg.rn], sizeof(uint64_t));
@@ -130,13 +133,15 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 						}
 						else {
 							if ((insn -> operands[3].type != AD_OP_IMM) || (insn -> operands[3].op_imm.bits < 0)) {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 'w') {
 								machineState.X[insn -> operands[0].op_reg.rn] = 0;
@@ -148,7 +153,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 						}
 					}
@@ -173,7 +179,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 						}
 						else {
@@ -196,7 +203,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 						}
 					}
@@ -220,7 +228,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 						}
 						else {
@@ -243,20 +252,22 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
-								return;
+								error = true;
+								break;
 							}
 						}
 					}
 					else {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;		
+						error = true;
 					}
 					break;
 				}
 				case AD_INSTR_LDRSW: {
 					if (insn -> num_operands > 3 || insn -> operands[0].op_reg.rtbl[0][0] != 'x') {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;
+						error = true;
+						break;
 					}
 					machineState.X[insn -> operands[0].op_reg.rn] = 0;
 					int32_t temp_word = 0;
@@ -273,7 +284,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 				case AD_INSTR_MADD: {
 					if (insn -> num_operands != 4 || ((insn -> operands[0].op_reg.rtbl[0][0] | insn -> operands[1].op_reg.rtbl[0][0] | insn -> operands[2].op_reg.rtbl[0][0] | insn -> operands[3].op_reg.rtbl[0][0]) != insn -> operands[0].op_reg.rtbl[0][0])) {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;
+						error = true;
+						break;
 					}
 					machineState.X[insn -> operands[0].op_reg.rn] = (machineState.X[insn -> operands[1].op_reg.rn] * machineState.X[insn -> operands[2].op_reg.rn]) + machineState.X[insn -> operands[3].op_reg.rn];
 					break;
@@ -281,7 +293,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 				case AD_INSTR_MOV: {
 					if (insn -> num_operands != 2) {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;
+						error = true;
+						break;
 					}
 					if (insn -> operands[1].type == AD_OP_REG) {
 						machineState.X[insn -> operands[0].op_reg.rn] = machineState.X[insn -> operands[1].op_reg.rn];
@@ -291,7 +304,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					}
 					else {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;					
+						error = true;
+						break;			
 					}
 					break;
 				}
@@ -303,7 +317,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 				case AD_INSTR_SMADDL: {
 					if (insn -> num_operands != 4 || insn -> operands[0].op_reg.rtbl[0][0] != 'x' || insn -> operands[1].op_reg.rtbl[0][0] != 'w' || insn -> operands[2].op_reg.rtbl[0][0] != 'w' || insn -> operands[3].op_reg.rtbl[0][0] != 'x') {
 						wrongOperand(insn, cheatMetadata, start_address);
-						return;
+						error = true;
+						break;
 					}
 					int32_t Wn = machineState.X[insn -> operands[1].op_reg.rn];
 					int32_t Wm = machineState.X[insn -> operands[2].op_reg.rn];
@@ -323,10 +338,15 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 				}
 				default: {
 					wrongOperand(insn, cheatMetadata, start_address);
-					return;
+					error = true;
 				}
 			}
+			if (error) break;
 			start_address += 4;
+		}
+		if (error) {
+			consoleUpdate(NULL);
+			continue;
 		}
 		char smallToPrint[64] = "";
 		if (unityDataStruct[i].get == false)
