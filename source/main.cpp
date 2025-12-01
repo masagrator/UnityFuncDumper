@@ -54,7 +54,7 @@ size_t checkAvailableHeap() {
 	return startSize - (1024 * 1024);
 }
 
-bool checkIfUnity() {
+bool checkIfUnity(bool* isUnity6) {
 	size_t i = 0;
 	while (i < mappings_count) {
 		if ((memoryInfoBuffers[i].perm & Perm_R) == Perm_R && (memoryInfoBuffers[i].perm & Perm_Rx) != Perm_Rx && memoryInfoBuffers[i].type == MemType_CodeStatic) {
@@ -68,6 +68,10 @@ bool checkIfUnity() {
 			if (result) {
 				printf("%s\n", result);
 				unity_sdk = result;
+				if (!memcmp(result, "SDK MW+UnityTechnologies+Unity-6000", 35)) {
+					*isUnity6 = true;
+				}
+				else *isUnity6 = false;
 				delete[] buffer_c;
 				return true;
 			}
@@ -441,7 +445,12 @@ int main(int argc, char* argv[])
 
 		//Test run
 
-		if (checkIfUnity()) {
+		bool isUnity6 = false;
+		if (checkIfUnity(&isUnity6)) {
+
+			if (isUnity6) {
+				printf("\nDetected Unity 6! Unity's fixedDeltaTime is stored in RationalTime system!\n");
+			}
 
 			uint64_t BID = 0;
 			memcpy(&BID, &(cheatMetadata.main_nso_build_id), 8);
