@@ -18,7 +18,6 @@ void wrongOperand(ad_insn* insn, const DmntCheatProcessMetadata cheatMetadata, u
 		}
 		else printf("MEM\n");
 	}
-	ArmadilloDone(&insn);
 }
 
 MachineState machineState_copy = {0};
@@ -57,17 +56,20 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 				break;
 			if (insn) {
 				ArmadilloDone(&insn);
+				insn = NULL;
 			}
 			int rc = ArmadilloDisassemble(instruction, start_address, &insn);
 			if (rc) {
 				printf("Disassembler error! 0x%x/%d\n", rc, rc);
 				ArmadilloDone(&insn);
+				insn = NULL;
 				return;
 			}
 			else {
 				ArmadilloDisassemble(instruction, start_address - cheatMetadata.main_nso_extents.base, &insn2);
 				toOutput.push_back(insn2 -> decoded);
 				ArmadilloDone(&insn2);
+				insn2 = NULL;
 			}
 			uint8_t readSize = 0;
 			switch(insn -> instr_id) {
@@ -106,8 +108,38 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					start_address = machineState.X[insn -> operands[0].op_reg.rn] - 4;
 					break;
 				}
+				case AD_INSTR_CBZ: {
+					if (machineState.X[insn -> operands[0].op_reg.rn] == 0) {
+						start_address = insn -> operands[1].op_imm.bits - 4;
+					}
+					break;
+				}
+				case AD_INSTR_CBNZ: {
+					if (machineState.X[insn -> operands[0].op_reg.rn] != 0) {
+						start_address = insn -> operands[1].op_imm.bits - 4;
+					}
+					break;
+				}
 				case AD_INSTR_CMP: {
 					cmp_flag = machineState.X[insn -> operands[0].op_reg.rn] == machineState.X[insn -> operands[1].op_reg.rn];
+					break;
+				}
+				case AD_INSTR_FCVT: {
+					if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
+						machineState.D[insn -> operands[0].op_reg.rn] = (double)machineState.S[insn -> operands[1].op_reg.rn];
+					}
+					else {
+						machineState.S[insn -> operands[0].op_reg.rn] = (double)machineState.D[insn -> operands[1].op_reg.rn];
+					}
+					break;
+				}
+				case AD_INSTR_FMUL: {
+					if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
+						machineState.D[insn -> operands[0].op_reg.rn] = machineState.D[insn -> operands[1].op_reg.rn] * machineState.D[insn -> operands[2].op_reg.rn];
+					}
+					else {
+						machineState.S[insn -> operands[0].op_reg.rn] = machineState.S[insn -> operands[1].op_reg.rn] * machineState.S[insn -> operands[2].op_reg.rn];
+					}
 					break;
 				}
 				case AD_INSTR_LDP: {
@@ -309,9 +341,41 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					}
 					break;
 				}
+				case AD_INSTR_MOVI: {
+					if (insn -> num_operands != 2 || insn -> operands[0].op_reg.rtbl[0][0] != 'd') {
+						wrongOperand(insn, cheatMetadata, start_address);
+						error = true;
+						break;
+					}
+					machineState.D[insn -> operands[0].op_reg.rn] = insn -> operands[1].op_imm.bits;
+					break;
+				}
 				case AD_INSTR_RET: {
 					start_address = returns.back();
 					returns.pop_back();
+					break;
+				}
+				case AD_INSTR_SCVTF: {
+					if (insn -> operands[1].op_reg.rtbl[0][0] == 'w') {
+						int32_t value = 0;
+						memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 4);
+						if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
+							machineState.S[insn -> operands[0].op_reg.rn] = (float)value;
+						}
+						else {
+							machineState.D[insn -> operands[0].op_reg.rn] = (double)value;
+						}
+					}
+					else {
+						int64_t value = 0;
+						memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 8);
+						if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
+							machineState.S[insn -> operands[0].op_reg.rn] = (float)value;
+						}
+						else {
+							machineState.D[insn -> operands[0].op_reg.rn] = (double)value;
+						}
+					}
 					break;
 				}
 				case AD_INSTR_SMADDL: {
@@ -341,7 +405,11 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					error = true;
 				}
 			}
-			if (error) break;
+			if (error) {
+				ArmadilloDone(&insn);
+				insn = 0;
+				break;
+			}
 			start_address += 4;
 		}
 		if (error) {
