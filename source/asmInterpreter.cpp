@@ -126,19 +126,28 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 				}
 				case AD_INSTR_FCVT: {
 					if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
-						machineState.D[insn -> operands[0].op_reg.rn] = (double)machineState.S[insn -> operands[1].op_reg.rn];
+						machineState.precision[insn -> operands[0].op_reg.rn].D = (double)machineState.precision[insn -> operands[1].op_reg.rn].S;
 					}
 					else {
-						machineState.S[insn -> operands[0].op_reg.rn] = (double)machineState.D[insn -> operands[1].op_reg.rn];
+						machineState.precision[insn -> operands[0].op_reg.rn].S = (float)machineState.precision[insn -> operands[1].op_reg.rn].D;
+					}
+					break;
+				}
+				case AD_INSTR_FDIV: {
+					if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
+						machineState.precision[insn -> operands[0].op_reg.rn].D = machineState.precision[insn -> operands[1].op_reg.rn].D / machineState.precision[insn -> operands[2].op_reg.rn].D;
+					}
+					else {
+						machineState.precision[insn -> operands[0].op_reg.rn].S = machineState.precision[insn -> operands[1].op_reg.rn].S / machineState.precision[insn -> operands[2].op_reg.rn].S;
 					}
 					break;
 				}
 				case AD_INSTR_FMUL: {
 					if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
-						machineState.D[insn -> operands[0].op_reg.rn] = machineState.D[insn -> operands[1].op_reg.rn] * machineState.D[insn -> operands[2].op_reg.rn];
+						machineState.precision[insn -> operands[0].op_reg.rn].D = machineState.precision[insn -> operands[1].op_reg.rn].D * machineState.precision[insn -> operands[2].op_reg.rn].D;
 					}
 					else {
-						machineState.S[insn -> operands[0].op_reg.rn] = machineState.S[insn -> operands[1].op_reg.rn] * machineState.S[insn -> operands[2].op_reg.rn];
+						machineState.precision[insn -> operands[0].op_reg.rn].S = machineState.precision[insn -> operands[1].op_reg.rn].S * machineState.precision[insn -> operands[2].op_reg.rn].S;
 					}
 					break;
 				}
@@ -158,10 +167,10 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 								break;
 							}
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.S[insn -> operands[0].op_reg.rn], sizeof(uint64_t));
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(uint64_t));
 							}
 							else if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.D[insn -> operands[0].op_reg.rn], sizeof(uint64_t));
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].D, sizeof(uint64_t));
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
@@ -194,7 +203,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					else if (insn -> num_operands == 3) {
 						if (insn -> operands[0].op_reg.fp) {
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits), (void*)&machineState.S[insn -> operands[0].op_reg.rn], sizeof(uint64_t));
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(float));
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
 									registerPointer = insn -> operands[1].op_reg.rn;
@@ -202,7 +211,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 								}
 							}
 							else if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits), (void*)&machineState.D[insn -> operands[0].op_reg.rn], sizeof(uint64_t));
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].D, sizeof(double));
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
 									registerPointer = insn -> operands[1].op_reg.rn;
@@ -243,7 +252,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					else if (insn -> num_operands == 2) {
 						if (insn -> operands[0].op_reg.fp) {
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn], (void*)&machineState.S[insn -> operands[0].op_reg.rn], sizeof(uint64_t));
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn], (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(uint64_t));
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
 									registerPointer = insn -> operands[1].op_reg.rn;
@@ -251,7 +260,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 								}
 							}
 							else if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn], (void*)&machineState.D[insn -> operands[0].op_reg.rn], sizeof(uint64_t));
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn], (void*)&machineState.precision[insn -> operands[0].op_reg.rn].D, sizeof(uint64_t));
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
 									registerPointer = insn -> operands[1].op_reg.rn;
@@ -347,7 +356,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						error = true;
 						break;
 					}
-					machineState.D[insn -> operands[0].op_reg.rn] = insn -> operands[1].op_imm.bits;
+					machineState.precision[insn -> operands[0].op_reg.rn].D = insn -> operands[1].op_imm.bits;
 					break;
 				}
 				case AD_INSTR_RET: {
@@ -356,24 +365,51 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					break;
 				}
 				case AD_INSTR_SCVTF: {
-					if (insn -> operands[1].op_reg.rtbl[0][0] == 'w') {
+					if (insn -> operands[1].op_reg.rtbl[0][0] == 'w' || insn -> operands[1].op_reg.rtbl[0][0] == 's') {
 						int32_t value = 0;
-						memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 4);
+						if (insn -> operands[1].op_reg.rtbl[0][0] == 'w') memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 4);
+						else memcpy(&value, &machineState.precision[insn -> operands[1].op_reg.rn].S, 4);
 						if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
-							machineState.S[insn -> operands[0].op_reg.rn] = (float)value;
+							machineState.precision[insn -> operands[0].op_reg.rn].S = (float)value;
 						}
 						else {
-							machineState.D[insn -> operands[0].op_reg.rn] = (double)value;
+							machineState.precision[insn -> operands[0].op_reg.rn].D = (double)value;
 						}
 					}
 					else {
 						int64_t value = 0;
-						memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 8);
+						if (insn -> operands[1].op_reg.rtbl[0][0] == 'x') memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 8);
+						else memcpy(&value, &machineState.precision[insn -> operands[1].op_reg.rn].D, 8);
 						if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
-							machineState.S[insn -> operands[0].op_reg.rn] = (float)value;
+							machineState.precision[insn -> operands[0].op_reg.rn].S = (float)value;
 						}
 						else {
-							machineState.D[insn -> operands[0].op_reg.rn] = (double)value;
+							machineState.precision[insn -> operands[0].op_reg.rn].D = (double)value;
+						}
+					}
+					break;
+				}
+				case AD_INSTR_UCVTF: {
+					if (insn -> operands[1].op_reg.rtbl[0][0] == 'w' || insn -> operands[1].op_reg.rtbl[0][0] == 's') {
+						uint32_t value = 0;
+						if (insn -> operands[1].op_reg.rtbl[0][0] == 'w') memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 4);
+						else memcpy(&value, &machineState.precision[insn -> operands[1].op_reg.rn].S, 4);
+						if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
+							machineState.precision[insn -> operands[0].op_reg.rn].S = (float)value;
+						}
+						else {
+							machineState.precision[insn -> operands[0].op_reg.rn].D = (double)value;
+						}
+					}
+					else {
+						uint64_t value = 0;
+						if (insn -> operands[1].op_reg.rtbl[0][0] == 'x') memcpy(&value, &machineState.X[insn -> operands[1].op_reg.rn], 8);
+						else memcpy(&value, &machineState.precision[insn -> operands[1].op_reg.rn].D, 8);
+						if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
+							machineState.precision[insn -> operands[0].op_reg.rn].S = (float)value;
+						}
+						else {
+							machineState.precision[insn -> operands[0].op_reg.rn].D = (double)value;
 						}
 					}
 					break;
@@ -433,14 +469,14 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						snprintf(smallToPrint, sizeof(smallToPrint), "int64=%ld", machineState_copy.X[0]);
 					break;
 				case 's':
-					printf("%f\n", machineState_copy.S[0]);
+					printf("%f\n", machineState_copy.precision[0].S);
 					if (unityDataStruct[i].get)
-						snprintf(smallToPrint, sizeof(smallToPrint), "float=%f", machineState_copy.S[0]);
+						snprintf(smallToPrint, sizeof(smallToPrint), "float=%f", machineState.precision[0].S);
 					break;
 				case 'd':
-					printf("%f\n", machineState_copy.D[0]);
+					printf("%f\n", machineState_copy.precision[0].D);
 					if (unityDataStruct[i].get)
-						snprintf(smallToPrint, sizeof(smallToPrint), "double=%f", machineState_copy.D[0]);
+						snprintf(smallToPrint, sizeof(smallToPrint), "double=%f", machineState.precision[0].D);
 					break;
 			}
 		}

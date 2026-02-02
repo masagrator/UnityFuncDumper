@@ -4,8 +4,10 @@
 
 struct MachineState {
 	long X[30];
-	float S[31];
-	double D[31];
+	union {
+		float S;
+		double D;
+	} precision[31];
 };
 
 struct UnityData {
