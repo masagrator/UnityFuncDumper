@@ -24,6 +24,7 @@ struct Ctx {
 	int (*log)(const char*, ...);
 	std::vector<uint32_t> win;
 	size_t winStart = 0;
+	bool readFailed = false;
 
 	// Instruction at absolute index j; 0 (udf) outside loaded window
 	uint32_t at(size_t j) const {
@@ -38,6 +39,7 @@ struct Ctx {
 		winStart = from;
 		if (read(base + from * 4, win.data(), (to - from) * 4)) {
 			win.clear();
+			readFailed = true;
 			return false;
 		}
 		return true;
@@ -365,6 +367,6 @@ bool findFpsLocks(uint64_t base, size_t textSize, FpsLockReadFn read, FpsLockRes
 	c.log = log;
 	c.win.reserve(WIN + 2 * MARGIN);
 	bool ok = (out->thunksFound = findThunks(c, out)) && findVsyncLock(c, out) && findFpsLock(c, out);
-	if (!ok && c.win.empty()) LOG("FPS: failed to read .text\n");
+	if (c.readFailed) LOG("FPS: failed to read .text\n");
 	return ok;
 }

@@ -97,6 +97,10 @@ struct Dumper {
 	Mem& m;
 	uint64_t base, moduleEnd;
 	uint64_t types = 0, typesCount = 0;
+	uint64_t usages = 0, usagesCount = 0; // il2cpp < v27: metadataUsages[] slot pointer array
+	// il2cpp < v27: Il2CppType.data / Il2CppGenericClass hold type definition index instead of pointer
+	bool indexMode = false;
+	uint64_t tdBase = 0, tdStride = 0;
 	uint64_t strBase = 0;
 	bool haveDecl = false;
 	uint32_t declOff = 0, declWidth = 0;
@@ -117,6 +121,21 @@ struct Dumper {
 	}
 
 	uint64_t typeAt(uint64_t index) { return index < typesCount ? m.q(types + index * 8) : 0; }
+
+	// Type definition handle from Il2CppType.data of CLASS/VALUETYPE
+	uint64_t defHandle(uint64_t data) { return indexMode ? tdBase + (uint32_t)data * tdStride : data; }
+	// Type definition handle of GENERICINST's Il2CppGenericClass
+	uint64_t genericDefHandle(uint64_t gc) {
+		return indexMode ? tdBase + (uint64_t)m.u32(gc) * tdStride : m.q(m.q(gc));
+	}
+	uint64_t typeHandle(uint64_t t) {
+		uint64_t q[2];
+		if (!t || !m.rd(t, q, sizeof(q))) return 0;
+		uint8_t ty = typeEnum(q[1]);
+		if (ty == T_CLASS || ty == T_VALUETYPE) return defHandle(q[0]);
+		if (ty == T_GENERICINST) return genericDefHandle(q[0]);
+		return 0;
+	}
 
 	std::string defName(uint64_t handle, bool addNs, bool nested, bool* generic) {
 		std::string name = m.cstr(strBase + m.u32(handle));
@@ -178,12 +197,11 @@ struct Dumper {
 			case T_VALUETYPE:
 			case T_CLASS: {
 				bool generic = false;
-				std::string n = defName(data, addNs, nested, &generic);
+				std::string n = defName(defHandle(data), addNs, nested, &generic);
 				return n;
 			}
 			case T_GENERICINST: {
-				uint64_t gt = m.q(data);
-				uint64_t h = m.q(gt);
+				uint64_t h = genericDefHandle(data);
 				std::string n = defName(h, addNs, true, nullptr);
 				if (nested) return n;
 				uint64_t inst = m.q(data + 8);
@@ -224,6 +242,34 @@ struct Dumper {
 		return best >= 3 && best * 2 > n;
 	}
 
+	// Il2CppClass.byval_arg.data == typeMetadataHandle in v27+, otherwise it's index into
+	// type definition table: calibrate table base and entry size from loaded classes
+	bool calibrateMode() {
+		std::vector<std::pair<uint64_t, uint64_t>> s; // (byval data, handle)
+		for (auto& e : classByHandle) {
+			s.emplace_back(m.q(e.second + K_BYVAL), e.first);
+			if (s.size() == 64) break;
+		}
+		if (s.size() < 3) return false;
+		size_t same = 0;
+		for (auto& x : s) if (x.first == x.second) same++;
+		if (same == s.size()) { indexMode = false; return true; }
+		std::sort(s.begin(), s.end());
+		uint64_t stride = 0;
+		for (size_t i = 1; i < s.size() && !stride; i++) {
+			if (s[i].first == s[i - 1].first || s[i].first > 0xFFFFFF) continue;
+			uint64_t di = s[i].first - s[i - 1].first, dp = s[i].second - s[i - 1].second;
+			if (dp % di == 0) stride = dp / di;
+		}
+		if (!stride || stride > 0x400) return false;
+		uint64_t b = s[0].second - s[0].first * stride;
+		for (auto& x : s) if (b + x.first * stride != x.second) return false;
+		indexMode = true;
+		tdBase = b;
+		tdStride = stride;
+		return true;
+	}
+
 	// Find which field of type definition is declaringTypeIndex (types[] index of declaring type)
 	void calibrateDeclaring() {
 		std::vector<std::pair<uint64_t, uint64_t>> nestedS;
@@ -238,14 +284,14 @@ struct Dumper {
 		}
 		if (nestedS.size() < 3 || topS.size() < 3) return;
 		for (uint32_t off = 8; off < 0x40; off += 2) {
-			for (uint32_t w = 2; w <= 4; w += 2) {
+			for (uint32_t w = 4; w >= 2; w -= 2) { // prefer 4-byte field (v24-v31), v39 uses 2-byte
 				if (off % w) continue;
 				uint32_t none = w == 2 ? 0xFFFF : 0xFFFFFFFF;
 				bool ok = true;
 				for (auto& s : nestedS) {
 					uint32_t v = 0;
 					m.rd(s.first + off, &v, w);
-					if (v >= typesCount || m.q(typeAt(v)) != s.second) { ok = false; break; }
+					if (v >= typesCount || typeHandle(typeAt(v)) != s.second) { ok = false; break; }
 				}
 				for (size_t i = 0; ok && i < topS.size(); i++) {
 					uint32_t v = 0;
@@ -269,6 +315,8 @@ bool findMetadataRegistration(Dumper& d, const std::vector<uint64_t>& Q) {
 		if (!ptrs || (Q[i + 7] & 7)) continue;
 		d.types = Q[i + 7];
 		d.typesCount = Q[i + 6];
+		d.usagesCount = Q[i + 14];
+		d.usages = Q[i + 15];
 		bool ok = true;
 		for (uint64_t k = 0; k < 32 && ok; k++) {
 			uint64_t t = d.typeAt(k * (d.typesCount / 32));
@@ -321,29 +369,59 @@ bool dumpTypeInfos(uint64_t base, uint64_t dataStart, uint64_t bssStart, uint64_
 		if (start == SIZE_MAX) start = i;
 		prev = i;
 	}
-	if (hi == lo) {
-		LOG("TypeInfo: metadata usage block not found (il2cpp older than v27?)\n");
-		return false;
-	}
-	lo = lo > 64 ? lo - 64 : 0;
-	hi = std::min(hi + 64, Q.size() - 1);
-	LOG("TypeInfo: usage block main+0x%lX - main+0x%lX\n",
-	    (unsigned long)(dataStart + lo * 8 - base), (unsigned long)(dataStart + hi * 8 - base));
-
 	struct Slot { uint64_t addr; uint64_t type; bool init; };
 	std::vector<Slot> slots;
-	for (size_t i = lo; i <= hi; i++) {
-		uint64_t v = Q[i], a = dataStart + i * 8;
-		if (encoded(v, 1)) slots.push_back({a, d.typeAt((v >> 1) & 0x0FFFFFFF), false});
-		else if (!(v & 1) && d.isClass(v)) {
-			slots.push_back({a, v + K_BYVAL, true});
-			d.addClass(v);
+	if (hi != lo) {
+		lo = lo > 64 ? lo - 64 : 0;
+		hi = std::min(hi + 64, Q.size() - 1);
+		LOG("TypeInfo: usage block main+0x%lX - main+0x%lX\n",
+		    (unsigned long)(dataStart + lo * 8 - base), (unsigned long)(dataStart + hi * 8 - base));
+
+		for (size_t i = lo; i <= hi; i++) {
+			uint64_t v = Q[i], a = dataStart + i * 8;
+			if (encoded(v, 1)) slots.push_back({a, d.typeAt((v >> 1) & 0x0FFFFFFF), false});
+			else if (!(v & 1) && d.isClass(v)) {
+				slots.push_back({a, v + K_BYVAL, true});
+				d.addClass(v);
+			}
 		}
+	}
+	else if (d.usagesCount && d.usagesCount < 0x1000000 && d.inModule(d.usages)) {
+		// il2cpp < v27: slots are listed in metadataUsages[], uninitialized slots are 0
+		// (their type is known only from global-metadata, so only initialized ones are dumped)
+		LOG("TypeInfo: il2cpp < v27, %ld metadata usages, dumping initialized TypeInfo only\n", (long)d.usagesCount);
+		std::vector<uint64_t> ptrs(d.usagesCount);
+		for (size_t o = 0; o < ptrs.size(); o += 0x8000) {
+			size_t n = std::min((size_t)0x8000, ptrs.size() - o);
+			if (!m.rd(d.usages + o * 8, &ptrs[o], n * 8)) {
+				LOG("TypeInfo: failed to read metadataUsages\n");
+				return false;
+			}
+		}
+		std::sort(ptrs.begin(), ptrs.end());
+		ptrs.erase(std::unique(ptrs.begin(), ptrs.end()), ptrs.end());
+		for (uint64_t a : ptrs) {
+			if (!d.inModule(a) || (a & 7)) continue;
+			uint64_t v = m.q(a);
+			if (v && d.isClass(v)) {
+				slots.push_back({a, v + K_BYVAL, true});
+				d.addClass(v);
+			}
+		}
+	}
+	else {
+		LOG("TypeInfo: metadata usage slots not found\n");
+		return false;
 	}
 	if (!d.calibrateStrBase()) {
 		LOG("TypeInfo: not enough initialized classes, run it later in game\n");
 		return false;
 	}
+	if (!d.calibrateMode()) {
+		LOG("TypeInfo: couldn't calibrate type definition handles\n");
+		return false;
+	}
+	if (d.indexMode) LOG("TypeInfo: type definitions at 0x%lX, size 0x%lX\n", (unsigned long)d.tdBase, (unsigned long)d.tdStride);
 	d.calibrateDeclaring();
 	if (d.haveDecl) LOG("TypeInfo: declaringTypeIndex at +0x%X (%d bytes)\n", d.declOff, d.declWidth);
 	else LOG("TypeInfo: declaringTypeIndex not calibrated, nested names may be incomplete\n");
