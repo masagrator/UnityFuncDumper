@@ -185,12 +185,18 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 								break;
 							}
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 'w') {
-								machineState.X[insn -> operands[0].op_reg.rn] = 0;
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint32_t)));
+								{
+									uint64_t ldrAddr = (uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits);
+									machineState.X[insn -> operands[0].op_reg.rn] = 0;
+									dmntchtReadCheatProcessMemory(ldrAddr, (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint32_t)));
+								}
 							}
 							else if (insn -> operands[0].op_reg.rtbl[0][0] == 'x')  {
-								machineState.X[insn -> operands[0].op_reg.rn] = 0;
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint64_t)));
+								{
+									uint64_t ldrAddr = (uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits);
+									machineState.X[insn -> operands[0].op_reg.rn] = 0;
+									dmntchtReadCheatProcessMemory(ldrAddr, (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint64_t)));
+								}
 							}
 							else {
 								wrongOperand(insn, cheatMetadata, start_address);
@@ -226,8 +232,11 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						}
 						else {
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 'w') {
-								machineState.X[insn -> operands[0].op_reg.rn] = 0;
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits), (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint32_t)));
+								{
+									uint64_t ldrAddr = (uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits);
+									machineState.X[insn -> operands[0].op_reg.rn] = 0;
+									dmntchtReadCheatProcessMemory(ldrAddr, (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint32_t)));
+								}
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
 									registerPointer = insn -> operands[1].op_reg.rn;
@@ -275,8 +284,11 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						}
 						else {
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 'w') {
-								machineState.X[insn -> operands[0].op_reg.rn] = 0;
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn], (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint32_t)));
+								{
+									uint64_t ldrAddr = (uint64_t)machineState.X[insn -> operands[1].op_reg.rn];
+									machineState.X[insn -> operands[0].op_reg.rn] = 0;
+									dmntchtReadCheatProcessMemory(ldrAddr, (void*)&machineState.X[insn -> operands[0].op_reg.rn], (readSize ? readSize : sizeof(uint32_t)));
+								}
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
 									registerPointer = insn -> operands[1].op_reg.rn;
@@ -310,7 +322,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						error = true;
 						break;
 					}
-					machineState.X[insn -> operands[0].op_reg.rn] = 0;
+					// destination written after load (rd may equal rn)
 					int32_t temp_word = 0;
 					if (insn -> num_operands == 3) {
 						dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits), (void*)&temp_word, sizeof(int32_t));
@@ -357,6 +369,32 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						break;
 					}
 					machineState.precision[insn -> operands[0].op_reg.rn].D = insn -> operands[1].op_imm.bits;
+					break;
+				}
+				case AD_INSTR_ORR: {
+					// Older compilers emit "orr wd, wzr, #imm" instead of "mov wd, #imm".
+					// Rn == 31 is the zero register here (armadillo prints it as wsp).
+					if (insn -> num_operands != 3 || insn -> operands[0].type != AD_OP_REG || insn -> operands[1].type != AD_OP_REG) {
+						wrongOperand(insn, cheatMetadata, start_address);
+						error = true;
+						break;
+					}
+					uint64_t lhs = insn -> operands[1].op_reg.rn == 31 ? 0 : machineState.X[insn -> operands[1].op_reg.rn];
+					uint64_t rhs = 0;
+					if (insn -> operands[2].type == AD_OP_IMM) {
+						rhs = insn -> operands[2].op_imm.bits;
+					}
+					else if (insn -> operands[2].type == AD_OP_REG) {
+						rhs = insn -> operands[2].op_reg.rn == 31 ? 0 : machineState.X[insn -> operands[2].op_reg.rn];
+					}
+					else {
+						wrongOperand(insn, cheatMetadata, start_address);
+						error = true;
+						break;
+					}
+					uint64_t value = lhs | rhs;
+					if (insn -> operands[0].op_reg.rtbl[0][0] == 'w') value &= 0xFFFFFFFF;
+					if (insn -> operands[0].op_reg.rn != 31) machineState.X[insn -> operands[0].op_reg.rn] = value;
 					break;
 				}
 				case AD_INSTR_RET: {

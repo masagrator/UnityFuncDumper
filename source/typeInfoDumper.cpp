@@ -8,8 +8,13 @@
 namespace {
 
 // Il2CppClass
-const uint32_t K_NAME = 0x10, K_NAMESPACE = 0x18, K_BYVAL = 0x20, K_THISARG = 0x30,
-               K_DECLARING = 0x50, K_HANDLE = 0x68, K_SELF = 0x78;
+const uint32_t K_NAME = 0x10, K_NAMESPACE = 0x18;
+// il2cpp v24+: byval_arg/this_arg embedded at 0x20/0x30, klass self pointer at 0x78
+// il2cpp v23 (Unity 5.5): byval_arg/this_arg are pointers at 0x20/0x28, no self pointer,
+//                         element_class/castClass (0x30/0x38) point to class itself
+struct ClassLayout { bool byvalPtr; uint32_t thisArg, declaring, handle, self; };
+const ClassLayout LAYOUT_V24 = {false, 0x30, 0x50, 0x68, 0x78};
+const ClassLayout LAYOUT_V23 = {true,  0x28, 0x40, 0x58, 0x30};
 // Il2CppTypeEnum
 enum : uint8_t {
 	T_PTR = 0x0f, T_VALUETYPE = 0x11, T_CLASS = 0x12, T_VAR = 0x13, T_ARRAY = 0x14,
@@ -111,14 +116,28 @@ struct Dumper {
 
 	bool inModule(uint64_t p) { return p >= base && p < moduleEnd; }
 
-	bool isClass(uint64_t k) {
+	ClassLayout L = LAYOUT_V24;
+
+	bool isClassWith(const ClassLayout& l, uint64_t k) {
 		if (!k || (k & 7) || inModule(k)) return false;
 		uint64_t q[16];
 		if (!m.rd(k, q, sizeof(q))) return false;
-		if (q[K_SELF / 8] != k) return false;
-		uint8_t t = typeEnum(q[K_BYVAL / 8 + 1]);
-		return isClassKind(t) && typeEnum(q[K_THISARG / 8 + 1]) == t;
+		if (!q[K_NAME / 8] || (q[K_NAME / 8] >= base && q[K_NAME / 8] < moduleEnd)) return false;
+		if (!l.byvalPtr) {
+			if (q[l.self / 8] != k) return false;
+			uint8_t t = typeEnum(q[0x20 / 8 + 1]);
+			return isClassKind(t) && typeEnum(q[l.thisArg / 8 + 1]) == t;
+		}
+		uint64_t bv[2], ta[2];
+		if (!q[4] || !q[l.thisArg / 8] || !m.rd(q[4], bv, sizeof(bv)) || !m.rd(q[l.thisArg / 8], ta, sizeof(ta))) return false;
+		uint8_t t = typeEnum(bv[1]);
+		if (!isClassKind(t) || typeEnum(ta[1]) != t) return false;
+		// element_class == castClass == self, except arrays
+		return q[l.self / 8] == k || t == T_ARRAY || t == T_SZARRAY;
 	}
+	bool isClass(uint64_t k) { return isClassWith(L, k); }
+	// Il2CppType* of class (byval_arg)
+	uint64_t classType(uint64_t k) { return L.byvalPtr ? m.q(k + 0x20) : k + 0x20; }
 
 	uint64_t typeAt(uint64_t index) { return index < typesCount ? m.q(types + index * 8) : 0; }
 
@@ -153,8 +172,8 @@ struct Dumper {
 		else {
 			auto it = classByHandle.find(handle);
 			if (it != classByHandle.end()) {
-				uint64_t d = m.q(it->second + K_DECLARING);
-				if (d) { pre = defName(m.q(d + K_HANDLE), addNs, true, nullptr) + "."; done = true; }
+				uint64_t d = m.q(it->second + L.declaring);
+				if (d) { pre = defName(m.q(d + L.handle), addNs, true, nullptr) + "."; done = true; }
 			}
 		}
 		if (!done && addNs) {
@@ -222,10 +241,10 @@ struct Dumper {
 	}
 
 	void addClass(uint64_t k, int depth = 0) {
-		uint64_t h = m.q(k + K_HANDLE);
-		uint8_t t = typeEnum(m.q(k + K_BYVAL + 8));
+		uint64_t h = m.q(k + L.handle);
+		uint8_t t = typeEnum(m.q(classType(k) + 8));
 		if (h && (t == T_CLASS || t == T_VALUETYPE)) classByHandle.emplace(h, k);
-		uint64_t d = m.q(k + K_DECLARING);
+		uint64_t d = m.q(k + L.declaring);
 		if (d && depth < 8 && isClass(d)) addClass(d, depth + 1);
 	}
 
@@ -247,7 +266,7 @@ struct Dumper {
 	bool calibrateMode() {
 		std::vector<std::pair<uint64_t, uint64_t>> s; // (byval data, handle)
 		for (auto& e : classByHandle) {
-			s.emplace_back(m.q(e.second + K_BYVAL), e.first);
+			s.emplace_back(m.q(classType(e.second)), e.first);
 			if (s.size() == 64) break;
 		}
 		if (s.size() < 3) return false;
@@ -275,9 +294,9 @@ struct Dumper {
 		std::vector<std::pair<uint64_t, uint64_t>> nestedS;
 		std::vector<uint64_t> topS;
 		for (auto& e : classByHandle) {
-			uint64_t d = m.q(e.second + K_DECLARING);
+			uint64_t d = m.q(e.second + L.declaring);
 			if (d) {
-				uint64_t dh = m.q(d + K_HANDLE);
+				uint64_t dh = m.q(d + L.handle);
 				if (dh && nestedS.size() < 48) nestedS.emplace_back(e.first, dh);
 			}
 			else if (topS.size() < 48) topS.push_back(e.first);
@@ -381,7 +400,7 @@ bool dumpTypeInfos(uint64_t base, uint64_t dataStart, uint64_t bssStart, uint64_
 			uint64_t v = Q[i], a = dataStart + i * 8;
 			if (encoded(v, 1)) slots.push_back({a, d.typeAt((v >> 1) & 0x0FFFFFFF), false});
 			else if (!(v & 1) && d.isClass(v)) {
-				slots.push_back({a, v + K_BYVAL, true});
+				slots.push_back({a, d.classType(v), true});
 				d.addClass(v);
 			}
 		}
@@ -400,11 +419,23 @@ bool dumpTypeInfos(uint64_t base, uint64_t dataStart, uint64_t bssStart, uint64_
 		}
 		std::sort(ptrs.begin(), ptrs.end());
 		ptrs.erase(std::unique(ptrs.begin(), ptrs.end()), ptrs.end());
+		// Il2CppClass layout: vote over slot values
+		size_t v24 = 0, v23 = 0, sampled = 0;
+		for (uint64_t a : ptrs) {
+			if (!d.inModule(a) || (a & 7)) continue;
+			uint64_t v = m.q(a);
+			if (!v || (v & 7)) continue;
+			if (d.isClassWith(LAYOUT_V24, v)) v24++;
+			else if (d.isClassWith(LAYOUT_V23, v)) v23++;
+			if (++sampled == 4000) break;
+		}
+		d.L = v23 > v24 ? LAYOUT_V23 : LAYOUT_V24;
+		LOG("TypeInfo: Il2CppClass layout %s (%ld/%ld)\n", v23 > v24 ? "v23" : "v24+", (long)v23, (long)v24);
 		for (uint64_t a : ptrs) {
 			if (!d.inModule(a) || (a & 7)) continue;
 			uint64_t v = m.q(a);
 			if (v && d.isClass(v)) {
-				slots.push_back({a, v + K_BYVAL, true});
+				slots.push_back({a, d.classType(v), true});
 				d.addClass(v);
 			}
 		}

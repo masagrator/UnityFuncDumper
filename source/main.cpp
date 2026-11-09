@@ -8,6 +8,8 @@
 #include "asmInterpreter.hpp"
 #include "fpsLocks.hpp"
 #include "typeInfoDumper.hpp"
+#include "icallScanner.hpp"
+#include <unordered_set>
 
 DmntCheatProcessMetadata cheatMetadata = {0};
 u64 mappings_count = 0;
@@ -374,6 +376,39 @@ static int dmntRead(uint64_t address, void* buffer, size_t size) {
 	return R_FAILED(dmntchtReadCheatProcessMemory(address, buffer, size)) ? 1 : 0;
 }
 
+// Finds icalls registered by code (directly or in per-module loops) and adds the ones
+// not found by array search. Older builds (e.g. 2020.3) register everything this way.
+void searchFunctionsScanner() {
+	printf("\nScanning code for icall registrations...\n");
+	consoleUpdate(NULL);
+	uint64_t base = cheatMetadata.main_nso_extents.base;
+	MemoryInfo text = {0};
+	if (R_FAILED(dmntchtQueryCheatProcessMemory(&text, base)) || (text.perm & Perm_Rx) != Perm_Rx) {
+		printf("Couldn't query main .text!\n");
+		return;
+	}
+	uint32_t mod0 = 0;
+	int32_t bssEndRel = 0;
+	dmntchtReadCheatProcessMemory(base + 4, &mod0, sizeof(mod0));
+	dmntchtReadCheatProcessMemory(base + mod0 + 12, &bssEndRel, sizeof(bssEndRel));
+	uint64_t moduleEnd = base + mod0 + bssEndRel;
+	std::vector<ICallEntry> found;
+	if (!scanInternalCalls(base, text.size - (base - text.addr), moduleEnd, dmntRead, found, printf)) {
+		consoleUpdate(NULL);
+		return;
+	}
+	std::unordered_set<std::string> known(UnityNames.begin(), UnityNames.end());
+	size_t added = 0;
+	for (auto& e : found) {
+		if (!known.insert(e.name).second) continue;
+		UnityNames.push_back(e.name);
+		UnityOffsets.push_back((uint32_t)e.offset);
+		added++;
+	}
+	printf("Added %ld icalls, %ld Unity functions in total.\n", added, UnityNames.size());
+	consoleUpdate(NULL);
+}
+
 void dumpFpsLocks() {
 	printf("\nSearching for vsync and FPS locks...\n");
 	consoleUpdate(NULL);
@@ -607,6 +642,7 @@ int main(int argc, char* argv[])
 				consoleUpdate(NULL);
 				appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
 				searchFunctionsUnity();
+				searchFunctionsScanner();
 				printf(CONSOLE_BLUE "\n---------------------------------------------\n\n" CONSOLE_RESET);
 				printf(CONSOLE_WHITE "Search is finished!\n");
 				consoleUpdate(NULL);
