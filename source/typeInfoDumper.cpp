@@ -68,7 +68,8 @@ public:
 		char buf[64];
 		while (s.size() < 1024) {
 			if (!rd(a + s.size(), buf, sizeof(buf))) break;
-			size_t l = strnlen(buf, sizeof(buf));
+			const char* z = (const char*)memchr(buf, 0, sizeof(buf)); // strnlen is POSIX, not in strict -std=c++23 newlib
+			size_t l = z ? (size_t)(z - buf) : sizeof(buf);
 			s.append(buf, l);
 			if (l < sizeof(buf)) break;
 		}
