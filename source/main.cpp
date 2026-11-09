@@ -467,8 +467,16 @@ void dumpTypeInfo() {
 	uint64_t moduleEnd = dataInfo.addr + dataInfo.size;
 	if (R_SUCCEEDED(dmntchtQueryCheatProcessMemory(&bssInfo, bssStart)) && bssInfo.addr + bssInfo.size > moduleEnd)
 		moduleEnd = bssInfo.addr + bssInfo.size;
+	// RW segment may be split into several mappings; .data starts at the first of them
+	uint64_t dataStart = dataInfo.addr;
+	for (int k = 0; k < 16; k++) {
+		MemoryInfo prev = {0};
+		if (R_FAILED(dmntchtQueryCheatProcessMemory(&prev, dataStart - 1)) || (prev.perm & Perm_Rw) != Perm_Rw || prev.addr <= base)
+			break;
+		dataStart = prev.addr;
+	}
 	std::vector<TypeInfoEntry> entries;
-	if (!dumpTypeInfos(base, dataInfo.addr, bssStart, moduleEnd, dmntRead, entries, printf)) {
+	if (!dumpTypeInfos(base, dataStart, bssStart, moduleEnd, dmntRead, entries, printf)) {
 		printf("TypeInfo dump failed.\n");
 		consoleUpdate(NULL);
 		return;

@@ -39,6 +39,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 	std::vector<std::string> toOutput;
 	for (size_t i = 0; i < unityDataStruct.size(); i++) {
 		toOutput.clear();
+		machineState = {};
 		auto itr = std::find(UnityNames.begin(), UnityNames.end(), unityDataStruct[i].search_name);
 		if (itr == UnityNames.end()) {
 			printf("%s was not found!\n", unityDataStruct[i].search_name);
@@ -167,7 +168,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 								break;
 							}
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(uint64_t));
+								machineState.precision[insn -> operands[0].op_reg.rn].D = 0; // LDR St zeroes upper bits
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(float));
 							}
 							else if (insn -> operands[0].op_reg.rtbl[0][0] == 'd') {
 								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (machineState.X[insn -> operands[2].op_reg.rn] << insn -> operands[3].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].D, sizeof(uint64_t));
@@ -209,6 +211,7 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					else if (insn -> num_operands == 3) {
 						if (insn -> operands[0].op_reg.fp) {
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
+								machineState.precision[insn -> operands[0].op_reg.rn].D = 0; // LDR St zeroes upper bits
 								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn] + (insn -> operands[2].op_imm.bits), (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(float));
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
@@ -261,7 +264,8 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 					else if (insn -> num_operands == 2) {
 						if (insn -> operands[0].op_reg.fp) {
 							if (insn -> operands[0].op_reg.rtbl[0][0] == 's') {
-								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn], (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(uint64_t));
+								machineState.precision[insn -> operands[0].op_reg.rn].D = 0; // LDR St zeroes upper bits
+								dmntchtReadCheatProcessMemory((uint64_t)machineState.X[insn -> operands[1].op_reg.rn], (void*)&machineState.precision[insn -> operands[0].op_reg.rn].S, sizeof(float));
 								if (insn -> operands[0].op_reg.rtbl[0][0] == unityDataStruct[i].data_type && insn -> operands[0].op_reg.rn == 0) {
 									memcpy(&machineState_copy, &machineState, sizeof(machineState_copy));
 									registerPointer = insn -> operands[1].op_reg.rn;
@@ -497,22 +501,22 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 			printf("%s: Register %c0=", unityDataStruct[i].output_name, unityDataStruct[i].data_type);
 			switch(unityDataStruct[i].data_type) {
 				case 'w':
-					printf("%d\n", (uint32_t)machineState_copy.X[0]);
+					printf("%d\n", (uint32_t)machineState.X[0]);
 					if (unityDataStruct[i].get)
-						snprintf(smallToPrint, sizeof(smallToPrint), "int32=%d", (uint32_t)machineState_copy.X[0]);
+						snprintf(smallToPrint, sizeof(smallToPrint), "int32=%d", (uint32_t)machineState.X[0]);
 					break;
 				case 'x':
-					printf("%ld\n", machineState_copy.X[0]);
+					printf("%ld\n", machineState.X[0]);
 					if (unityDataStruct[i].get)
-						snprintf(smallToPrint, sizeof(smallToPrint), "int64=%ld", machineState_copy.X[0]);
+						snprintf(smallToPrint, sizeof(smallToPrint), "int64=%ld", machineState.X[0]);
 					break;
 				case 's':
-					printf("%f\n", machineState_copy.precision[0].S);
+					printf("%f\n", machineState.precision[0].S);
 					if (unityDataStruct[i].get)
 						snprintf(smallToPrint, sizeof(smallToPrint), "float=%f", machineState.precision[0].S);
 					break;
 				case 'd':
-					printf("%f\n", machineState_copy.precision[0].D);
+					printf("%f\n", machineState.precision[0].D);
 					if (unityDataStruct[i].get)
 						snprintf(smallToPrint, sizeof(smallToPrint), "double=%f", machineState.precision[0].D);
 					break;
