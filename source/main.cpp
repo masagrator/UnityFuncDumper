@@ -6,6 +6,10 @@
 #include <switch.h>
 #include <sys/stat.h>
 #include "asmInterpreter.hpp"
+#include "fpsLocks.hpp"
+#include "typeInfoDumper.hpp"
+#include "icallScanner.hpp"
+#include <unordered_set>
 
 DmntCheatProcessMetadata cheatMetadata = {0};
 u64 mappings_count = 0;
@@ -368,6 +372,144 @@ void dumpAsLog() {
 	printf("\n");
 }
 
+static int dmntRead(uint64_t address, void* buffer, size_t size) {
+	return R_FAILED(dmntchtReadCheatProcessMemory(address, buffer, size)) ? 1 : 0;
+}
+
+// Finds icalls registered by code (directly or in per-module loops) and adds the ones
+// not found by array search. Older builds (e.g. 2020.3) register everything this way.
+void searchFunctionsScanner() {
+	printf("\nScanning code for icall registrations...\n");
+	consoleUpdate(NULL);
+	uint64_t base = cheatMetadata.main_nso_extents.base;
+	MemoryInfo text = {0};
+	if (R_FAILED(dmntchtQueryCheatProcessMemory(&text, base)) || (text.perm & Perm_Rx) != Perm_Rx) {
+		printf("Couldn't query main .text!\n");
+		return;
+	}
+	uint32_t mod0 = 0;
+	int32_t bssEndRel = 0;
+	dmntchtReadCheatProcessMemory(base + 4, &mod0, sizeof(mod0));
+	dmntchtReadCheatProcessMemory(base + mod0 + 12, &bssEndRel, sizeof(bssEndRel));
+	uint64_t moduleEnd = base + mod0 + bssEndRel;
+	std::vector<ICallEntry> found;
+	if (!scanInternalCalls(base, text.size - (base - text.addr), moduleEnd, dmntRead, found, printf)) {
+		consoleUpdate(NULL);
+		return;
+	}
+	// Array search may find names but not their function array; drop unpaired names
+	if (UnityNames.size() != UnityOffsets.size()) {
+		printf("Array search found %ld names but %ld offsets, keeping only paired ones.\n", UnityNames.size(), UnityOffsets.size());
+		size_t n = std::min(UnityNames.size(), UnityOffsets.size());
+		UnityNames.resize(n);
+		UnityOffsets.resize(n);
+	}
+	std::unordered_set<std::string> known(UnityNames.begin(), UnityNames.end());
+	size_t added = 0;
+	for (auto& e : found) {
+		if (!known.insert(e.name).second) continue;
+		UnityNames.push_back(e.name);
+		UnityOffsets.push_back((uint32_t)e.offset);
+		added++;
+	}
+	printf("Added %ld icalls, %ld Unity functions in total.\n", added, UnityNames.size());
+	consoleUpdate(NULL);
+}
+
+void dumpFpsLocks() {
+	printf("\nSearching for vsync and FPS locks...\n");
+	consoleUpdate(NULL);
+	uint64_t base = cheatMetadata.main_nso_extents.base;
+	MemoryInfo text = {0};
+	if (R_FAILED(dmntchtQueryCheatProcessMemory(&text, base)) || (text.perm & Perm_Rx) != Perm_Rx) {
+		printf("Couldn't query main .text!\n");
+		return;
+	}
+	FpsLockResult r;
+	findFpsLocks(base, text.size - (base - text.addr), dmntRead, &r, printf);
+	if (!r.vsyncLockFound) {
+		printf("Vsync lock not found.\n");
+		consoleUpdate(NULL);
+		return;
+	}
+	int32_t vsync = 0;
+	float fps = 0;
+	dmntchtReadCheatProcessMemory(base + r.vsyncLock, &vsync, sizeof(vsync));
+	printf("Vsync lock: main+0x%lX = %d\n", r.vsyncLock, vsync);
+	if (r.fpsLockFound) {
+		dmntchtReadCheatProcessMemory(base + r.fpsLock, &fps, sizeof(fps));
+		printf("FPS lock:   main+0x%lX = %f%s\n", r.fpsLock, fps, r.fpsLockFromPattern ? "" : " (found by value)");
+	}
+	consoleUpdate(NULL);
+
+	uint64_t BID = 0;
+	memcpy(&BID, &(cheatMetadata.main_nso_build_id), 8);
+	char txt_path[128] = "";
+	snprintf(txt_path, sizeof(txt_path), "sdmc:/switch/UnityFuncDumper/%016lX/%016lX.txt", cheatMetadata.title_id, __builtin_bswap64(BID));
+	FILE* text_file = fopen(txt_path, "a");
+	if (!text_file) {
+		printf("Couldn't append to txt file!\n");
+		return;
+	}
+	fprintf(text_file, "\n{int32=%d}\n[nn::vi Vsync lock]\n[MAIN, 0x%lX]\n", vsync, r.vsyncLock);
+	if (r.fpsLockFound)
+		fprintf(text_file, "\n{float=%f}\n[nn::vi FPS lock]\n[MAIN, 0x%lX]\n", fps, r.fpsLock);
+	fclose(text_file);
+}
+
+void dumpTypeInfo() {
+	printf("\nSearching for IL2CPP TypeInfo slots...\n");
+	consoleUpdate(NULL);
+	uint64_t base = cheatMetadata.main_nso_extents.base;
+	uint32_t mod0 = 0;
+	int32_t bssRel = 0;
+	dmntchtReadCheatProcessMemory(base + 4, &mod0, sizeof(mod0));
+	dmntchtReadCheatProcessMemory(base + mod0 + 8, &bssRel, sizeof(bssRel));
+	uint64_t bssStart = base + mod0 + bssRel;
+	MemoryInfo dataInfo = {0}, bssInfo = {0};
+	if (R_FAILED(dmntchtQueryCheatProcessMemory(&dataInfo, bssStart - 1)) || (dataInfo.perm & Perm_Rw) != Perm_Rw) {
+		printf("Couldn't query main .data!\n");
+		return;
+	}
+	uint64_t moduleEnd = dataInfo.addr + dataInfo.size;
+	if (R_SUCCEEDED(dmntchtQueryCheatProcessMemory(&bssInfo, bssStart)) && bssInfo.addr + bssInfo.size > moduleEnd)
+		moduleEnd = bssInfo.addr + bssInfo.size;
+	// RW segment may be split into several mappings; .data starts at the first of them
+	uint64_t dataStart = dataInfo.addr;
+	for (int k = 0; k < 16; k++) {
+		MemoryInfo prev = {0};
+		if (R_FAILED(dmntchtQueryCheatProcessMemory(&prev, dataStart - 1)) || (prev.perm & Perm_Rw) != Perm_Rw || prev.addr <= base)
+			break;
+		dataStart = prev.addr;
+	}
+	std::vector<TypeInfoEntry> entries;
+	if (!dumpTypeInfos(base, dataStart, bssStart, moduleEnd, dmntRead, entries, printf)) {
+		printf("TypeInfo dump failed.\n");
+		consoleUpdate(NULL);
+		return;
+	}
+	size_t initialized = 0;
+	for (auto& e : entries) if (e.initialized) initialized++;
+	printf("Found %ld TypeInfo slots, %ld initialized.\n", entries.size(), initialized);
+	consoleUpdate(NULL);
+
+	uint64_t BID = 0;
+	memcpy(&BID, &(cheatMetadata.main_nso_build_id), 8);
+	char ti_path[128] = "";
+	snprintf(ti_path, sizeof(ti_path), "sdmc:/switch/UnityFuncDumper/%016lX/%016lX_TypeInfo.txt", cheatMetadata.title_id, __builtin_bswap64(BID));
+	FILE* text_file = fopen(ti_path, "w");
+	if (!text_file) {
+		printf("Couldn't create TypeInfo file!\n");
+		return;
+	}
+	fprintf(text_file, "{%s}\n\n", unity_sdk.c_str());
+	for (auto& e : entries)
+		fprintf(text_file, "%s: [MAIN, 0x%lX]%s\n", e.name.c_str(), e.offset, e.initialized ? "" : " (not initialized)");
+	fclose(text_file);
+	printf("Dumped TypeInfo to:\n%s\n", ti_path);
+	consoleUpdate(NULL);
+}
+
 // Main program entrypoint
 int main(int argc, char* argv[])
 {
@@ -515,6 +657,7 @@ int main(int argc, char* argv[])
 				consoleUpdate(NULL);
 				appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
 				searchFunctionsUnity();
+				searchFunctionsScanner();
 				printf(CONSOLE_BLUE "\n---------------------------------------------\n\n" CONSOLE_RESET);
 				printf(CONSOLE_WHITE "Search is finished!\n");
 				consoleUpdate(NULL);
@@ -523,6 +666,8 @@ int main(int argc, char* argv[])
 				delete[] memoryInfoBuffers;
 			}
 			dumpPointers(UnityNames, UnityOffsets, cheatMetadata, unity_sdk);
+			dumpFpsLocks();
+			dumpTypeInfo();
 		}
 		dmntchtExit();
 		printf("Press + to exit.");

@@ -3,7 +3,7 @@
 #include <cstdint>
 
 struct MachineState {
-	long X[30];
+	long X[32]; // x0-x30 + slot for register 31 (sp/zr)
 	union {
 		float S;
 		double D;
