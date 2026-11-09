@@ -132,7 +132,15 @@ bool resolveReg(Ctx& c, size_t idx, uint32_t reg, size_t maxBack, uint64_t* out)
 			continue;
 		}
 		if (rd(i) != reg) continue;
+		// FP/SIMD data processing writes V registers, except moves/conversions to general registers
+		if ((i & 0x0E000000) == 0x0E000000) {
+			bool fpToInt = (i & 0x5F203C00) == 0x1E200000 && ((i >> 16) & 7) != 2 && ((i >> 16) & 7) != 3 && ((i >> 16) & 7) != 7;
+			bool simdToInt = (i & 0x9FE08400) == 0x0E000400 && (((i >> 11) & 0xF) == 0x5 || ((i >> 11) & 0xF) == 0x7); // SMOV/UMOV
+			if (!fpToInt && !simdToInt) continue;
+			return false;
+		}
 		if (isLoadStore(i)) {
+			if ((i >> 26) & 1) continue; // load/store of FP/SIMD register
 			if ((i >> 22) & 1) return false;
 			continue;
 		}
