@@ -6,6 +6,7 @@
 #include <switch.h>
 #include <sys/stat.h>
 #include "asmInterpreter.hpp"
+#include "fpsLocks.hpp"
 
 DmntCheatProcessMetadata cheatMetadata = {0};
 u64 mappings_count = 0;
@@ -368,6 +369,51 @@ void dumpAsLog() {
 	printf("\n");
 }
 
+static int dmntRead(uint64_t address, void* buffer, size_t size) {
+	return R_FAILED(dmntchtReadCheatProcessMemory(address, buffer, size)) ? 1 : 0;
+}
+
+void dumpFpsLocks() {
+	printf("\nSearching for vsync and FPS locks...\n");
+	consoleUpdate(NULL);
+	uint64_t base = cheatMetadata.main_nso_extents.base;
+	MemoryInfo text = {0};
+	if (R_FAILED(dmntchtQueryCheatProcessMemory(&text, base)) || (text.perm & Perm_Rx) != Perm_Rx) {
+		printf("Couldn't query main .text!\n");
+		return;
+	}
+	FpsLockResult r;
+	findFpsLocks(base, text.size - (base - text.addr), dmntRead, &r, printf);
+	if (!r.vsyncLockFound) {
+		printf("Vsync lock not found.\n");
+		consoleUpdate(NULL);
+		return;
+	}
+	int32_t vsync = 0;
+	float fps = 0;
+	dmntchtReadCheatProcessMemory(base + r.vsyncLock, &vsync, sizeof(vsync));
+	printf("Vsync lock: main+0x%lX = %d\n", r.vsyncLock, vsync);
+	if (r.fpsLockFound) {
+		dmntchtReadCheatProcessMemory(base + r.fpsLock, &fps, sizeof(fps));
+		printf("FPS lock:   main+0x%lX = %f%s\n", r.fpsLock, fps, r.fpsLockFromPattern ? "" : " (found by value)");
+	}
+	consoleUpdate(NULL);
+
+	uint64_t BID = 0;
+	memcpy(&BID, &(cheatMetadata.main_nso_build_id), 8);
+	char txt_path[128] = "";
+	snprintf(txt_path, sizeof(txt_path), "sdmc:/switch/UnityFuncDumper/%016lX/%016lX.txt", cheatMetadata.title_id, __builtin_bswap64(BID));
+	FILE* text_file = fopen(txt_path, "a");
+	if (!text_file) {
+		printf("Couldn't append to txt file!\n");
+		return;
+	}
+	fprintf(text_file, "\n{int32=%d}\n[nn::vi Vsync lock]\n[MAIN, 0x%lX]\n", vsync, r.vsyncLock);
+	if (r.fpsLockFound)
+		fprintf(text_file, "\n{float=%f}\n[nn::vi FPS lock]\n[MAIN, 0x%lX]\n", fps, r.fpsLock);
+	fclose(text_file);
+}
+
 // Main program entrypoint
 int main(int argc, char* argv[])
 {
@@ -523,6 +569,7 @@ int main(int argc, char* argv[])
 				delete[] memoryInfoBuffers;
 			}
 			dumpPointers(UnityNames, UnityOffsets, cheatMetadata, unity_sdk);
+			dumpFpsLocks();
 		}
 		dmntchtExit();
 		printf("Press + to exit.");
