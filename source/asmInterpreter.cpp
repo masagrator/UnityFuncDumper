@@ -47,6 +47,11 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 			continue;
 		}
 		size_t index = itr - UnityNames.begin();
+		if (index >= UnityOffsets.size()) {
+			printf("%s has no function offset!\n", unityDataStruct[i].search_name);
+			consoleUpdate(NULL);
+			continue;
+		}
 		uint64_t start_address = cheatMetadata.main_nso_extents.base + UnityOffsets[index];
 		uint32_t instruction = 0;
 		std::vector<uint64_t> returns;
@@ -373,6 +378,31 @@ void dumpPointers(const std::vector<std::string> UnityNames, const std::vector<u
 						break;
 					}
 					machineState.precision[insn -> operands[0].op_reg.rn].D = insn -> operands[1].op_imm.bits;
+					break;
+				}
+				case AD_INSTR_AND: {
+					// e.g. "and w0, w0, #0x1" normalizing bool return values
+					if (insn -> num_operands != 3 || insn -> operands[0].type != AD_OP_REG || insn -> operands[1].type != AD_OP_REG) {
+						wrongOperand(insn, cheatMetadata, start_address);
+						error = true;
+						break;
+					}
+					uint64_t lhs = insn -> operands[1].op_reg.rn == 31 ? 0 : machineState.X[insn -> operands[1].op_reg.rn];
+					uint64_t rhs = 0;
+					if (insn -> operands[2].type == AD_OP_IMM) {
+						rhs = insn -> operands[2].op_imm.bits;
+					}
+					else if (insn -> operands[2].type == AD_OP_REG) {
+						rhs = insn -> operands[2].op_reg.rn == 31 ? 0 : machineState.X[insn -> operands[2].op_reg.rn];
+					}
+					else {
+						wrongOperand(insn, cheatMetadata, start_address);
+						error = true;
+						break;
+					}
+					uint64_t value = lhs & rhs;
+					if (insn -> operands[0].op_reg.rtbl[0][0] == 'w') value &= 0xFFFFFFFF;
+					if (insn -> operands[0].op_reg.rn != 31) machineState.X[insn -> operands[0].op_reg.rn] = value;
 					break;
 				}
 				case AD_INSTR_ORR: {

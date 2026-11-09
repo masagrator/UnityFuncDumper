@@ -397,6 +397,13 @@ void searchFunctionsScanner() {
 		consoleUpdate(NULL);
 		return;
 	}
+	// Array search may find names but not their function array; drop unpaired names
+	if (UnityNames.size() != UnityOffsets.size()) {
+		printf("Array search found %ld names but %ld offsets, keeping only paired ones.\n", UnityNames.size(), UnityOffsets.size());
+		size_t n = std::min(UnityNames.size(), UnityOffsets.size());
+		UnityNames.resize(n);
+		UnityOffsets.resize(n);
+	}
 	std::unordered_set<std::string> known(UnityNames.begin(), UnityNames.end());
 	size_t added = 0;
 	for (auto& e : found) {

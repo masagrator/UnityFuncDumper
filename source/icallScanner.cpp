@@ -29,6 +29,10 @@ inline bool isBL(uint32_t i) { return (i & 0xFC000000) == 0x94000000; }
 inline uint64_t blTarget(uint32_t i, uint64_t pc) { return pc + (sext(i & 0x3FFFFFF, 26) << 2); }
 // LDR Xt, [Xn, Xm{, LSL #3}]
 inline bool isLDRxReg(uint32_t i) { return (i & 0xFFE00C00) == 0xF8600800; }
+// LDRSW Xt, [Xn, Xm{, LSL #2}]
+inline bool isLDRSWReg(uint32_t i) { return (i & 0xFFE00C00) == 0xB8A00800; }
+// ADD Xd, Xn, Xm (shifted register, no shift)
+inline bool isADDreg64(uint32_t i) { return (i & 0xFFE0FC00) == 0x8B000000; }
 // CMP Xn, #imm
 inline bool isCMPx(uint32_t i) { return (i & 0xFF80001F) == 0xF100001F; }
 inline bool isLoadStore(uint32_t i) { return (i & 0x0A000000) == 0x08000000; }
@@ -157,7 +161,8 @@ bool isICallName(const std::string& s) {
 }
 
 struct Direct { uint64_t target, name, func; };
-struct Loop { uint64_t target, names, funcs, count; };
+// rel32: names table holds int32 offsets relative to table start (Unity 6000.3+)
+struct Loop { uint64_t target, names, funcs, count; bool rel32; };
 
 } // namespace
 
@@ -192,6 +197,22 @@ bool scanInternalCalls(uint64_t base, size_t textSize, uint64_t moduleEnd, ICall
 				if (isLDRxReg(x) && rd(x) == 0) { l0 = x; k0 = k; }
 				if (isLDRxReg(x) && rd(x) == 1) { l1 = x; k1 = k; }
 			}
+			// Rel32 form: LDRSW Xt, [Xa, Xi, LSL #2] ; ADD X0, Xa, Xt ; LDR X1, [Xb, Xi, LSL #3]
+			bool rel32 = false;
+			uint32_t relIdx = 0;
+			if (!l0 && l1) {
+				for (size_t k = j - 4; k < j && !l0; k++) {
+					uint32_t a = c.at(k);
+					if (!isADDreg64(a) || rd(a) != 0) continue;
+					for (size_t t = k - 3; t < k; t++) {
+						uint32_t ls = c.at(t);
+						if (isLDRSWReg(ls) && rd(ls) == rm(a) && rn(ls) == rn(a) && rm(ls) == rm(l1)) {
+							l0 = ls; k0 = t; rel32 = true; relIdx = rm(ls);
+						}
+					}
+				}
+			}
+			(void)relIdx;
 			if (l0 && l1 && rm(l0) == rm(l1)) {
 				uint64_t names = 0, funcs = 0;
 				if (!resolveReg(c, k0, rn(l0), 24, &names) || !resolveReg(c, k1, rn(l1), 24, &funcs)) continue;
@@ -206,8 +227,14 @@ bool scanInternalCalls(uint64_t base, size_t textSize, uint64_t moduleEnd, ICall
 				uint64_t n = end / step;
 				if (!n || n > 0x10000 || !c.inModule(names) || !c.inModule(funcs)) continue;
 				uint64_t first = 0;
-				if (!c.rdc(names, &first, 8) || !c.inModule(first) || !isICallName(c.cstr(first))) continue;
-				loops.push_back({target, names, funcs, n});
+				if (rel32) {
+					int32_t rel = 0;
+					if (!c.rdc(names, &rel, 4)) continue;
+					first = names + rel;
+				}
+				else if (!c.rdc(names, &first, 8)) continue;
+				if (!c.inModule(first) || !isICallName(c.cstr(first))) continue;
+				loops.push_back({target, names, funcs, n, rel32});
 				votes[target] += n;
 				continue;
 			}
@@ -240,7 +267,13 @@ bool scanInternalCalls(uint64_t base, size_t textSize, uint64_t moduleEnd, ICall
 		if (l.target != reg) continue;
 		nl++;
 		std::vector<uint64_t> names(l.count), funcs(l.count);
-		if (!c.rdc(l.names, names.data(), l.count * 8) || !c.rdc(l.funcs, funcs.data(), l.count * 8)) continue;
+		if (l.rel32) {
+			std::vector<int32_t> rel(l.count);
+			if (!c.rdc(l.names, rel.data(), l.count * 4)) continue;
+			for (size_t k = 0; k < l.count; k++) names[k] = l.names + rel[k];
+		}
+		else if (!c.rdc(l.names, names.data(), l.count * 8)) continue;
+		if (!c.rdc(l.funcs, funcs.data(), l.count * 8)) continue;
 		for (size_t k = 0; k < l.count; k++) {
 			if (!c.inModule(names[k]) || !c.inText(funcs[k])) continue;
 			std::string s = c.cstr(names[k], 1023);
